@@ -1,0 +1,3 @@
+[submodule "desktop-wallet"]
+	path = desktop-wallet
+	url = git@github.com:ccHarvestasya/desktop-wallet.git
