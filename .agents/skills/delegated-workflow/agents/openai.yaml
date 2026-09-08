@@ -1,0 +1,4 @@
+interface:
+  display_name: "委任ワークフロー"
+  short_description: "作業整理・実装・独立レビューを指定モデルで分担する手順"
+  default_prompt: "$delegated-workflow を使って、このリポジトリの作業を分担して進めてください。"
