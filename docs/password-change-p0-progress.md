@@ -19,9 +19,9 @@ P0では旧形式暗号文の厳格な形式検証や完全性検証を追加し
 | P0の回帰テスト | 追加済み・対象テスト完走 |
 | 型チェック | 通過 |
 | 全体Lint・整形確認 | 通過（既存警告5件） |
-| 対象テスト | 完了（16件成功） |
+| 対象テスト | 完了（17件成功） |
 | Webビルド | 完了（環境制限を回避して成功） |
-| `desktop-wallet` へのコミット | 完了（`fa057406`） |
+| `desktop-wallet` へのコミット | 完了（`45b92988`） |
 
 ## 実装方針
 
@@ -51,6 +51,40 @@ P0では旧形式暗号文の厳格な形式検証や完全性検証を追加し
 6. アカウントモデルに残る `encRemoteAccountPrivateKey` も再暗号化対象へ追加した。
 7. スナップショットの部分書込みに対する後始末、モデル必須項目、レコードキー、参照関係、スキーマ版の検証を追加した。
 
+## 継続作業（2026-09-09）
+
+P0検証時に長時間化していた `FormPersistentDelegationRequestTransaction` の阻害要因を切り分け、対象テストと終了処理を安定化した。
+
+### 実装・設計判断
+
+- 対象テスト内の非同期UI操作、トースト確認、プロフィール解除、料金選択、マルチシグ選択を`await`し、操作完了後の画面状態を検証するようにした。
+- 各テストで生成したストアを追跡し、DOMのアンマウント、アカウント・ネットワーク購読の解放、保留中Vuexアクションの排出、ストアの`uninitialize`をこの順序で実行するようにした。保留中アクションには実タイマーを含む待機を設け、終了時に残存アクション名を報告する。
+- Jestで`LocalStorageBackend`をインメモリ実装へ差し替えているため、`localStorage`のキー削除だけでは不十分だった。Harvesting、Mosaic、Network currency、Network、Nodeの各シングルトンストレージを、テストで使用したネットワーク世代ハッシュ単位で消去するようにした。
+- 未モックだった`/node/unlockedaccount`を追加し、ノード運用者テストは実際のNode監視サービスのメソッド呼出しで`B983...`から`05E5...`への対応を検証できる構成にした。
+- アカウント情報が未初期化の場合のgetterを`null`へ正規化し、購読が登録されていない場合もlistenerを閉じるようにした。Harvestingの状態取得はネットワーク初期化前に終了し、Networkの購読解除完了を待つようにした。これらはテスト終了時の競合を防ぐ防御的変更である。
+
+### レビューと対応
+
+- 独立レビューで指摘された非同期操作、終了順序、キャッシュ実体、無効なリンク解除アサーション、ノード監視モック、getterのnull契約を反映した。
+- 再レビューで、キャッシュ削除への世代ハッシュ引渡し、実ノード監視モック、非null待機、アカウント購読解放を確認し、重大な残指摘なしの承認を得た。
+
+### 継続作業の検証
+
+- `./node_modules/.bin/jest --runInBand __tests__/views/forms/FormPersistentDelegationRequestTransaction.spec.ts --testTimeout=30000 --silent`
+  - 17件成功、終了コード0、197.253秒
+- `./node_modules/.bin/jest --runInBand __tests__/services/PasswordChangeService.spec.ts --testTimeout=30000 --silent`
+  - 16件成功、終了コード0、55.178秒
+- `./node_modules/.bin/tsc --noEmit`
+  - 成功
+- `npm run eslint`
+  - 終了コード0。既存の未使用変数警告5件のみ
+- `./node_modules/.bin/prettier --check ./src ./__tests__ ./__mocks__`
+  - 成功
+- `git diff --check`
+  - 成功
+- `env NODE_OPTIONS=--max_old_space_size=3072 npm run build:web`
+  - Node 16.20.2で成功。ビルド完了メッセージを確認。既知のBrowserslistおよびアセットサイズ警告のみ
+
 ## 検証記録
 
 ### 成功
@@ -69,18 +103,18 @@ P0では旧形式暗号文の厳格な形式検証や完全性検証を追加し
 
 ### 未完了・阻害要因
 
-- 全Jestは、`canvas.node` の再構築後に起動できることを確認した。ただし、全体実行では既存のWebSocket・MSW依存テストが長時間化し、`FormPersistentDelegationRequestTransaction.spec.ts` の失敗出力を確認した後、上限時間内の完了を優先して手動停止した。全体の成功は未確認であり、今回のP0対象外として切り分ける。
+- 全体Jestは未実行のため、全体の成功は未確認である。ただし、従来の阻害要因だった`FormPersistentDelegationRequestTransaction.spec.ts`は全17件を単独で完走し、今回のP0対象範囲では解消済みである。全体JestはWebSocket・MSW依存テストの実行時間を含め、PR環境で別途確認する。
 - `canvas` のソースビルドは、Python 3.12およびCairo/Pango/Pixman開発ライブラリ不足では実行できない。Node 16向けプリビルドを取得できる環境では再構築に成功したため、クリーンなPR環境で同じ依存導入手順を確認する必要がある。
 - JestのNode環境では、アプリ設定が参照する `navigator`、`window`、`localStorage` をテストセットアップで補い、`symbol-sdk` と `js-sha3` のcross-realm `ArrayBuffer`差異をJest専用アダプターで吸収した。本番暗号処理は変更していない。
 
 ## 次の作業
 
-1. PR環境で全Jestを実行し、`FormPersistentDelegationRequestTransaction.spec.ts` の既存失敗原因を切り分ける。
+1. PR環境で全Jestを実行し、対象外テストを含む全体の成功を確認する。
 2. 実ユーザーデータを使わない永続スナップショット復旧の再起動相当試験を追加・確認する。
 3. PR資料としてこの記録を参照し、全体Jestと実環境確認の結果を更新する。
 
 ## リポジトリ状態（記録時点）
 
-- 親リポジトリHEAD: `4e99ad5d2374a08f2c5239c610f0507470b591c1`（この記録のコミット前）
-- `desktop-wallet` HEAD: `fa05740683a98f7cfd117ad3806abc7d92d2957a`
+- 親リポジトリHEAD: `2562b3cf1547db6b205bc7cc0fa49e92a260c013`（この記録の更新前）
+- `desktop-wallet` HEAD: `45b92988ed246dde6e2931bc43517ee08580e696`
 - `desktop-wallet` の既存変更: `_symbol` の変更、`mise.toml` の未追跡ファイル。今回の実装では変更していない。
